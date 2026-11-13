@@ -1,0 +1,13 @@
+# Keep credentials and temporary files out of GitHub
+.env
+.env.*
+*.pem
+*.key
+secrets.txt
+.DS_Store
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# League snapshots belong only in private repositories.
+# The collector saves snapshots in data/ for private copies.

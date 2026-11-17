@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-17 — Scheduled-sync and playoff fixes
+
+- **Scheduled syncs now run in private copies.** The privacy guard used `github.event.repository.private`, which is empty on scheduled runs, so the twice-daily schedule was skipped and only manual or Cloudflare runs synced. A small `guard` job now asks GitHub's API whether the repository is private.
+- Updated `actions/checkout` and `actions/setup-python` to `v7` (GitHub Actions runners no longer provide Node 20).
+- Playoff byes and eliminated teams no longer get paired with a random "opponent." Matchups now include `has_matchup`, and `overview.md` says "no matchup" for those weeks.
+- Records show ties when a team has any, and standings count a tie as half a win. The summary field is renamed `standings_by_record_then_points`.
+- The player directory now includes NFL team defenses (`DEF`), so waiver questions about defenses work.
+- Collector User-Agent is now `SleeperLeagueSyncTemplate/1.2`.
+
 ## 2026-11-13 — Works with any AI assistant
 
 - Renamed the project to "Connect your Sleeper fantasy league to your AI assistant." It no longer favors ChatGPT.

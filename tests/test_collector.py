@@ -83,6 +83,64 @@ class CollectorTests(unittest.TestCase):
             self.assertIn("## Eagles", (latest / "overview.md").read_text())
             self.assertEqual(json.loads((latest / "league.json").read_text())["scoring_settings"]["rec"], 1)
 
+    def run_collect(self, routes, league_id, user_id):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        latest = root / "data" / "latest"
+        latest.mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"SLEEPER_LEAGUE_ID": league_id, "SLEEPER_USER_ID": user_id, "REPORT_TIMEZONE": "America/New_York"}), \
+             mock.patch.object(collector, "ROOT", root), \
+             mock.patch.object(collector, "LATEST", latest), \
+             mock.patch.object(collector, "fetch", side_effect=lambda path, required=True: routes.get(path)):
+            collector.collect()
+        directory = json.loads((latest / "player_directory.json").read_text())
+        return json.loads((latest / "summary.json").read_text()), (latest / "overview.md").read_text(), directory
+
+    def test_playoff_bye_has_no_opponent_and_ties_and_defenses(self):
+        league_id, user_id = "444555666", "777"
+        routes = {
+            "/state/nfl": {"week": 15, "season": "2026"},
+            f"/league/{league_id}": {"name": "Playoff League", "season": "2026"},
+            f"/league/{league_id}/users": [
+                {"user_id": user_id, "display_name": "Bye Team"},
+                {"user_id": "2", "display_name": "Eliminated Team"},
+                {"user_id": "3", "display_name": "Playoff A"},
+                {"user_id": "4", "display_name": "Playoff B"},
+            ],
+            f"/league/{league_id}/rosters": [
+                {"roster_id": 1, "owner_id": user_id, "players": ["11"], "starters": ["11"],
+                 "settings": {"wins": 10, "losses": 3, "ties": 1, "fpts": 1500}},
+                {"roster_id": 2, "owner_id": "2", "players": [], "settings": {"wins": 2, "losses": 12}},
+                {"roster_id": 3, "owner_id": "3", "players": [], "settings": {"wins": 10, "losses": 4, "fpts": 1600}},
+                {"roster_id": 4, "owner_id": "4", "players": [], "settings": {"wins": 8, "losses": 6}},
+            ],
+            "/players/nfl": {
+                "11": {"full_name": "Starting Player", "position": "QB", "team": "BUF"},
+                "PHI": {"first_name": "Philadelphia", "last_name": "Eagles", "position": "DEF", "team": "PHI"},
+            },
+        }
+        for week in (14, 15, 16):
+            routes[f"/league/{league_id}/matchups/{week}"] = [
+                {"roster_id": 1, "matchup_id": None, "points": 0, "starters": ["11"]},
+                {"roster_id": 2, "matchup_id": None, "points": 0},
+                {"roster_id": 3, "matchup_id": 1, "points": 0},
+                {"roster_id": 4, "matchup_id": 1, "points": 0},
+            ]
+        summary, overview, directory = self.run_collect(routes, league_id, user_id)
+        self.assertEqual(directory["PHI"]["position"], "DEF")
+        bye = summary["my_matchups"]["15"]
+        self.assertIsNone(bye["opponent"])
+        self.assertFalse(bye["has_matchup"])
+        self.assertIn("Week 15: no matchup", overview)
+        self.assertNotIn("vs Eliminated Team", overview)
+        # 10-3-1 (10.5) ranks ahead of 10-4 (10.0) despite fewer points.
+        standings = summary["standings_by_record_then_points"]
+        self.assertEqual(standings[0]["team_name"], "Bye Team")
+        self.assertIn("**Record:** 10–3–1", overview)
+        self.assertIn("Playoff A (Playoff A): 10–4;", overview)
+
+
 
 if __name__ == "__main__":
     unittest.main()

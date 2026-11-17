@@ -48,7 +48,7 @@ def fetch(path: str, required: bool = True):
     for attempt in range(3):
         try:
             request = Request(url, headers={
-                "User-Agent": "SleeperLeagueSyncTemplate/1.1",
+                "User-Agent": "SleeperLeagueSyncTemplate/1.2",
                 "Accept": "application/json",
             })
             with urlopen(request, timeout=35) as response:
@@ -74,6 +74,12 @@ def save_json(path: Path, value):
 
 def fantasy_points(settings: dict) -> float:
     return (settings.get("fpts") or 0) + (settings.get("fpts_decimal") or 0) / 100
+
+
+def record_text(team: dict) -> str:
+    """W–L, plus ties only when the team has any."""
+    text = f"{team['wins']}–{team['losses']}"
+    return text + f"–{team['ties']}" if team.get("ties") else text
 
 
 def filled_starters(ids) -> list[str]:
@@ -148,7 +154,7 @@ def collect():
                 if not isinstance(player, dict):
                     continue
                 position = player.get("position")
-                if pid in owned_ids or (player.get("team") and position in {"QB", "RB", "WR", "TE", "K"}):
+                if pid in owned_ids or (player.get("team") and position in {"QB", "RB", "WR", "TE", "K", "DEF"}):
                     directory[pid] = {
                         "name": player.get("full_name") or " ".join(str(player.get(k) or "") for k in ("first_name", "last_name")).strip(),
                         "team": player.get("team"),
@@ -203,7 +209,8 @@ def collect():
             "reserve": [player_label(pid) for pid in reserve],
             "taxi": [player_label(pid) for pid in taxi],
         })
-    teams.sort(key=lambda item: (-item["wins"], -item["points_for"]))
+    # A tie counts as half a win, matching how Sleeper ranks records.
+    teams.sort(key=lambda item: (-(item["wins"] + 0.5 * item["ties"]), -item["points_for"]))
     mine = next((team for team in teams if team["owner_user_id"] == user_id), None)
     if mine is None:
         raise RuntimeError("This Sleeper user does not own a roster in this league. Check the two IDs.")
@@ -213,10 +220,24 @@ def collect():
         mine_row = next((item for item in rows if item.get("roster_id") == mine["roster_id"]), None)
         if not mine_row:
             continue
-        opponent_row = next((item for item in rows if item.get("matchup_id") == mine_row.get("matchup_id") and item.get("roster_id") != mine["roster_id"]), None)
+        matchup_id = mine_row.get("matchup_id")
+        if matchup_id is None:
+            # Sleeper leaves matchup_id empty when a team has no game that week
+            # (a playoff bye or elimination). Never pair it with another such team.
+            my_matchups[week_text] = {
+                "opponent": None,
+                "has_matchup": False,
+                "my_points_so_far": mine_row.get("points"),
+                "opponent_points_so_far": None,
+                "my_starters": [player_label(pid) for pid in filled_starters(mine_row.get("starters"))],
+                "note": "No head-to-head matchup this week (for example, a playoff bye or elimination).",
+            }
+            continue
+        opponent_row = next((item for item in rows if item.get("matchup_id") == matchup_id and item.get("roster_id") != mine["roster_id"]), None)
         opponent_team = next((team for team in teams if opponent_row and team["roster_id"] == opponent_row.get("roster_id")), None)
         my_matchups[week_text] = {
             "opponent": opponent_team["team_name"] if opponent_team else None,
+            "has_matchup": True,
             "my_points_so_far": mine_row.get("points"),
             "opponent_points_so_far": opponent_row.get("points") if opponent_row else None,
             "my_starters": [player_label(pid) for pid in filled_starters(mine_row.get("starters"))],
@@ -235,7 +256,7 @@ def collect():
         "transactions_fetched_weeks": sorted(int(w) for w in transactions),
         "my_team": mine,
         "my_matchups": my_matchups,
-        "standings_by_wins_then_points": teams,
+        "standings_by_record_then_points": teams,
         "rostered_player_ids": len({str(pid) for roster in rosters for pid in (roster.get("players") or [])}),
         "player_directory_fetched_at_utc": directory_meta.get("refreshed_at_utc"),
         "player_directory_note": "Player labels/injury statuses may be from a cached daily catalog; check current injury and lineup news separately.",
@@ -274,7 +295,7 @@ def collect():
         f"**NFL week:** {week}", "",
         f"## {mine['team_name']}", "",
         f"**Manager:** {mine['manager']} | **Roster ID:** {mine['roster_id']}",
-        f"**Record:** {mine['wins']}–{mine['losses']} | **Points:** {mine['points_for']:.2f} | **Waiver priority:** {('#' + str(mine['waiver_priority'])) if mine['waiver_priority'] is not None else 'not reported'}",
+        f"**Record:** {record_text(mine)} | **Points:** {mine['points_for']:.2f} | **Waiver priority:** {('#' + str(mine['waiver_priority'])) if mine['waiver_priority'] is not None else 'not reported'}",
         "", "### Starters", "",
     ]
     lines += [f"- {entry}" for entry in mine["starters"]]
@@ -290,10 +311,13 @@ def collect():
         lines += [f"- {entry}" for entry in mine["taxi"]]
     lines += ["", "## Matchups (scores may still be in progress)", ""]
     for week_text, matchup in my_matchups.items():
+        if not matchup["has_matchup"]:
+            lines.append(f"- Week {week_text}: no matchup (bye or eliminated)")
+            continue
         lines.append(f"- Week {week_text} vs {matchup['opponent'] or 'unknown'}: {matchup['my_points_so_far']} – {matchup['opponent_points_so_far']}")
-    lines += ["", "## League standings (wins, then points)", ""]
+    lines += ["", "## League standings (record, then points)", ""]
     for team in teams:
-        lines.append(f"- {team['team_name']} ({team['manager']}): {team['wins']}–{team['losses']}; {team['points_for']} pts")
+        lines.append(f"- {team['team_name']} ({team['manager']}): {record_text(team)}; {team['points_for']} pts")
     lines += [
         "", "## Important notes", "",
         "- This is a snapshot, not a live stream.",

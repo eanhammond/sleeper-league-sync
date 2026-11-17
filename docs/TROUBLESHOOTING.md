@@ -4,7 +4,7 @@ Open your **private** repository → **Actions** → **Save Sleeper league snaps
 
 | What you see | What to check |
 | --- | --- |
-| Job says **skipped** | Make sure your repository is **Private**. The public template skips real syncs on purpose. |
+| The **sync** job says **skipped** | Make sure your repository is **Private**. The public template skips real syncs on purpose. Open the run's **guard** job to see what it found. |
 | `Missing SLEEPER_LEAGUE_ID` | Add the Actions secret with exactly that name, in **your private repository**. |
 | `Missing SLEEPER_USER_ID` | Add the second Actions secret. |
 | `This Sleeper user does not own a roster` | Check that the user ID belongs to your own account in the selected league and season. |

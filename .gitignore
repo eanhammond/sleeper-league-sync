@@ -9,5 +9,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# League snapshots belong only in private repositories.
-# The collector saves snapshots in data/ for private copies.
+# data/ is intentionally NOT ignored: private copies must commit their
+# snapshots there. Never add a data/ folder to this public template.

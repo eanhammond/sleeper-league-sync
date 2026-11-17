@@ -23,19 +23,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Privacy guard: a PUBLIC repository must not produce league snapshots.
+  # This workflow works only after someone creates a PRIVATE repository
+  # using the public template. The check asks GitHub's API directly because
+  # scheduled runs do not include repository details in github.event.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      private: ${{ steps.check.outputs.private }}
+    steps:
+      - name: Confirm this repository is private
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          private="$(gh api "repos/$GITHUB_REPOSITORY" --jq .private || echo unknown)"
+          echo "private=$private" >> "$GITHUB_OUTPUT"
+          if [ "$private" = "true" ]; then
+            echo 'Repository is private; the sync will run.'
+          else
+            echo '::notice::This repository is not private (or could not be checked), so the sync is skipped to protect league data.'
+          fi
+
   sync:
-    # Privacy guard: a PUBLIC repository must not produce league snapshots.
-    # This workflow works only after someone creates a PRIVATE repository
-    # using the public template.
-    if: github.event.repository.private == true
+    needs: guard
+    if: needs.guard.outputs.private == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Check out private repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
